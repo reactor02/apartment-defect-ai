@@ -171,7 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
             compareWrap.classList.add('hide');
             layerTabs.classList.add('hide');
             gridBg.classList.add('hide');
-            systemStatus.textContent = '[READY TO SCAN]';
+            systemStatus.textContent = '';
             systemStatus.style.color = '#10b981';
             uploadText.innerHTML = `<strong>${fileName}</strong><br>스캔 준비 완료`;
             btnDiagnose.removeAttribute('disabled');
@@ -197,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadZone.classList.add('hide');
         logZone.classList.remove('hide');
         laserLine.classList.remove('hide');
-        systemStatus.textContent = '[RUNNING MODEL INFERENCE...]';
+        systemStatus.textContent = '';
         systemStatus.style.color = '#38bdf8';
 
         const payload = new FormData();
@@ -239,20 +239,52 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    function injectBackendResult(htmlContent) {
-        laserLine.classList.add('hide');
-        previewImg.classList.add('hide');
-        dynamicResult.innerHTML = htmlContent;
-        dynamicResult.classList.remove('hide');
+      function injectBackendResult(htmlContent) {
+        // -------------------------------------------------------------
+        // [오리지널 유지] 기존 하단 영역 및 우측 뷰포트 프리뷰 가드 처리
+        // -------------------------------------------------------------
+        if (laserLine) laserLine.classList.add('hide');
+        if (previewImg) previewImg.classList.add('hide');
+        
+        if (dynamicResult) {
+            dynamicResult.innerHTML = htmlContent;
+            dynamicResult.classList.remove('hide');
+        }
 
-        logZone.querySelector('.code-log').innerHTML = `
-            <p>> [INFO] Initializing ConvNeXt-Tiny Engine...</p>
-            <p>> [INFO] Loading weights into CUDA/CPU context...</p>
-            <p>> [DATA] Transferring payload to model tensor...</p>
-            <p>> [COMPUTING] LayerCAM tracking in progress...</p>
-            <p style="color: #10b981;">> [COMPLETE] Architecture diagnostic logic executed.</p>
-        `;
+        if (logZone && logZone.querySelector('.code-log')) {
+            logZone.querySelector('.code-log').innerHTML = `
+                <p>> [INFO] Initializing ConvNeXt-Tiny Engine...</p>
+                <p>> [INFO] Loading weights into CUDA/CPU context...</p>
+                <p>> [DATA] Transferring payload to model tensor...</p>
+                <p>> [COMPUTING] LayerCAM tracking in progress...</p>
+                <p style="color: #10b981;">> [COMPLETE] Architecture diagnostic logic executed.</p>
+            `;
+        }
 
+        // 🌟 [안전 타이밍 보정] 브라우저가 화면 렌더링을 완전히 끝낸 뒤(0.1초 후) 좌측 박스에 데이터 주입
+        setTimeout(() => {
+            const reportContainer = document.getElementById('reportContainer');
+            const reportContent = document.getElementById('reportContent');
+            
+            if (reportContainer && reportContent) {
+                // 1. 서버가 보내준 검증된 HTML 소스를 좌측 상단 박스에 다이렉트 주입
+                reportContent.innerHTML = htmlContent;
+                reportContainer.classList.remove('hide');
+                reportContent.scrollTop = 0;
+
+                // 2. 파일 업로드 패널과 기존 조작 버튼들을 안전하게 스타일로 숨김
+                if (uploadBox) uploadBox.style.display = 'none';
+                if (uploadZone) uploadZone.classList.add('hide');
+                if (logZone) logZone.classList.add('hide');
+                if (btnDiagnose) btnDiagnose.classList.add('hide');
+            } else {
+                console.error("오류: 좌측 reportContainer 또는 reportContent 박스를 찾지 못했습니다.");
+            }
+        }, 100);
+
+        // -------------------------------------------------------------
+        // [오리지널 유지] 메타데이터 파이프라인 수수 및 우측 이미지/슬라이더 제어
+        // -------------------------------------------------------------
         const metaPipe = document.getElementById('backendUrls');
         if (!metaPipe) {
             alert("서버 결과 템플릿 파싱에 실패했습니다.");
@@ -265,46 +297,53 @@ document.addEventListener('DOMContentLoaded', () => {
         const finalHeatmapImgUrl = metaPipe.getAttribute('data-heatmap');
         const finalStatus = metaPipe.getAttribute('data-status');
 
-        resultImg.src = finalResultImgUrl;
-        resultImg.classList.remove('hide');
+        if (resultImg) {
+            resultImg.src = finalResultImgUrl;
+            resultImg.classList.remove('hide');
+        }
 
-        // [추가] 불량 판정(= 히트맵이 있을 때)에만 before/after 슬라이더와 탭을 켠다.
-        // 우수 판정이나 히트맵 생성 실패는 위 resultImg 한 장만 그대로 보여주는
-        // 기존 동작을 유지한다 (비교할 근거 레이어가 없으므로).
         layerUrls.box = finalResultImgUrl;
         layerUrls.heatmap = finalHeatmapImgUrl || '';
 
         if (layerUrls.heatmap) {
-            resultImg.classList.add('hide');   // 슬라이더가 대신 보여준다
-            layerTabs.classList.remove('hide');
+            if (resultImg) resultImg.classList.add('hide');
+            if (layerTabs) layerTabs.classList.remove('hide');
 
-            // before = 원본, after = 선택 레이어. 원본 크기를 알아야 비교 상자 비율이
-            // 잡히므로 로드 완료(캐시 히트 포함) 시점에 fitCompareWrap을 한 번 호출한다.
-            beforeImg.src = finalOriginImgUrl;
+            if (beforeImg) beforeImg.src = finalOriginImgUrl;
             selectLayer('heatmap');
             setSplit(DEFAULT_SPLIT);
-            compareWrap.classList.remove('hide');
+            if (compareWrap) compareWrap.classList.remove('hide');
 
-            if (beforeImg.complete && beforeImg.naturalWidth) {
+            if (beforeImg && beforeImg.complete && beforeImg.naturalWidth) {
                 fitCompareWrap();
-            } else {
+            } else if (beforeImg) {
                 beforeImg.addEventListener('load', fitCompareWrap, { once: true });
             }
         }
 
-        if (finalStatus && finalStatus.includes("불량")) {
-            systemStatus.textContent = '[DIAGNOSIS COMPLETE: DEFECT DETECTED]';
-            systemStatus.style.color = '#ef4444';
-        } else {
-            systemStatus.textContent = '[DIAGNOSIS COMPLETE: SECURE]';
-            systemStatus.style.color = '#10b981';
+        // 상태 문구는 표시하지 않는다 (판정은 결과 카드가 보여준다).
+        // 판정값이 필요하면 #backendUrls의 data-status를 쓸 것 — 이 엘리먼트는 항상 비어 있다.
+        if (systemStatus) {
+            systemStatus.textContent = '';
+            systemStatus.style.color = (finalStatus && finalStatus.includes("불량")) ? '#ef4444' : '#10b981';
         }
 
-        isFinished = true;
+   // 숨겨져 있던 우측 상단 헤더 내 다운로드 스위치 전면 노출
+   // (클릭 핸들러는 DOMContentLoaded 블록에서 단 한 번만 결합한다. 여기서 다시 onclick을
+   //  대입하면 raw_prob을 실어보내는 그 핸들러를 덮어써서 PDF가 전부 불량으로 나온다)
+   const btnHeaderDownload = document.getElementById('btnHeaderDownload');
+   if (btnHeaderDownload) {
+       btnHeaderDownload.classList.remove('hide');
+   }
+
+    isFinished = true;
+    if (btnDiagnose) {
         btnDiagnose.removeAttribute('disabled');
         btnDiagnose.classList.add('active');
         btnDiagnose.textContent = '다시 진단하기';
     }
+    }
+
 
     function resetSystem() {
         isFinished = false;
@@ -335,8 +374,207 @@ document.addEventListener('DOMContentLoaded', () => {
         btnDiagnose.setAttribute('disabled', 'true');
         btnDiagnose.classList.remove('active');
         btnDiagnose.textContent = '진단 시작';
-        systemStatus.textContent = '[SYSTEM READY: AWAITING INPUT]';
+        systemStatus.textContent = '';
         systemStatus.style.color = '#00f2fe';
         uploadText.innerHTML = `사진을 여기로 드래그하거나<br>클릭하여 업로드하세요<br><br>(50MB 이하, .png .jpg .jpeg .jfif 만 가능)<br>해상도 가로, 세로 1024 이하.<br>진단하고 싶은 하자가 정중앙에 위치한 사진 권장.`;
+    
+                // 💡 [초기화 추가] 좌측 박스 숨기고 기존 업로드 박스 다시 드러내기
+        const rc = document.getElementById('reportContainer');
+        const rct = document.getElementById('reportContent');
+        if (rc) rc.classList.add('hide');
+        if (rct) rct.innerHTML = '';
+        if (uploadBox) uploadBox.style.display = 'block'; // 숨겼던 업로드 영역 부활
+        if (btnDiagnose) btnDiagnose.classList.remove('hide'); // 진단 버튼 부활
+
+    
+    }
+
+    // ── 🆕 [진단 이력 기능] 여기부터 추가 (2026-07-31) ──
+    // 좌측 진단 이력 사이드바. 상단 const 선언부를 건드리지 않으려고
+    // 필요한 요소를 이 블록 안에서 따로 잡는다 (팀 병합 충돌 최소화).
+    const historyToggle = document.getElementById('historyToggle');
+    const historySidebar = document.getElementById('historySidebar');
+    const historyScrim = document.getElementById('historyScrim');
+    const historyList = document.getElementById('historyList');
+
+    // status 문자열 → [배지 클래스, 표시 문구]
+    const HISTORY_BADGE = { '불량': ['bad', '불량'], '우수': ['good', '우수'], '오류': ['err', '오류'] };
+
+    function closeHistory() {
+        historySidebar.classList.remove('open');
+        historyScrim.classList.add('hide');
+    }
+
+    /** 썸네일 자리에 들어갈 회색 X 상자 */
+    function makeThumbX() {
+        const box = document.createElement('div');
+        box.className = 'history-thumb-x';
+        box.textContent = '✕';
+        return box;
+    }
+
+    function renderHistory(items, failed) {
+        historyList.innerHTML = '';
+
+        if (!items.length) {
+            const empty = document.createElement('li');
+            empty.className = 'history-empty';
+            // failed === true면 DB 장애 등으로 못 받아온 것 — "이력이 없다"고 단언하면 거짓말이 된다
+            empty.textContent = failed ? '이력을 불러오지 못했습니다.' : '아직 진단 이력이 없습니다.';
+            historyList.appendChild(empty);
+            return;
+        }
+
+        items.forEach(item => {
+            const isError = item.status === '오류';
+            const row = document.createElement('li');
+            row.className = 'history-item' + (isError ? ' is-error' : '');
+
+            if (isError || !item.thumb) {
+                row.appendChild(makeThumbX());
+            } else {
+                const thumb = document.createElement('img');
+                thumb.className = 'history-thumb';
+                thumb.src = item.thumb;
+                thumb.alt = '';
+                // 서버에서 파일이 지워졌으면 X 상자로 갈아끼우고 클릭도 막는다
+                thumb.addEventListener('error', () => {
+                    thumb.replaceWith(makeThumbX());
+                    row.classList.add('is-error');
+                }, { once: true });
+                row.appendChild(thumb);
+            }
+
+            const date = document.createElement('span');
+            date.className = 'history-date';
+            date.textContent = item.date;
+            row.appendChild(date);
+
+            const badge = document.createElement('span');
+            const badgeSpec = HISTORY_BADGE[item.status] || HISTORY_BADGE['오류'];
+            badge.className = 'history-badge ' + badgeSpec[0];
+            badge.textContent = badgeSpec[1];
+            row.appendChild(badge);
+
+            if (!isError) {
+                row.addEventListener('click', () => {
+                    if (row.classList.contains('is-error')) return;   // 썸네일이 404난 뒤 클릭 차단
+                    restoreFromHistory(item.id);
+                });
+            }
+            historyList.appendChild(row);
+        });
+    }
+
+    function openHistory() {
+        historySidebar.classList.add('open');
+        historyScrim.classList.remove('hide');
+        // 열 때마다 새로 받는다 — 방금 끝낸 진단이 바로 목록에 보인다
+        fetch('/history')
+            .then(res => res.json())
+            .then(data => renderHistory(data.items || [], !!data.error))
+            .catch(() => renderHistory([], true));  // 네트워크 실패도 DB 장애와 같은 문구로 안내
+    }
+
+    /** 저장된 진단 1건을 화면에 되살린다.
+     *  서버가 /predict와 똑같은 조각을 주므로 기존 injectBackendResult()를 그대로 쓴다
+     *  — 슬라이더·레이어 탭·fitCompareWrap()이 거기서 전부 세팅된다. */
+    function restoreFromHistory(id) {
+        fetch('/history/' + id)
+            .then(res => {
+                if (!res.ok) throw new Error('이력을 불러오지 못했습니다. 이미지가 삭제되었을 수 있습니다.');
+                return res.text();
+            })
+            .then(htmlResult => {
+                closeHistory();
+                // btnDiagnose 클릭 핸들러(script.js:195-201)와 같은 화면 전환
+                uploadZone.classList.add('hide');
+                logZone.classList.remove('hide');
+                laserLine.classList.add('hide');
+                progressBar.style.width = '100%';
+                progressText.textContent = '[ANALYZING... 100%]';
+                // 이전 복원이 남긴 슬라이더·탭을 먼저 걷어낸다.
+                // injectBackendResult()는 히트맵이 있을 때 켜기만 하고 없을 때 끄지 않으므로,
+                // 우수 건을 복원하면 직전 불량 건의 레이어가 그대로 남는다 (renderPreview와 같은 정리).
+                compareWrap.classList.add('hide');
+                layerTabs.classList.add('hide');
+                injectBackendResult(htmlResult);
+            })
+            .catch(err => alert(err.message));
+    }
+
+    historyToggle.addEventListener('click', () => {
+        if (historySidebar.classList.contains('open')) closeHistory();
+        else openHistory();
+    });
+    historyScrim.addEventListener('click', closeHistory);
+    // ── 🆕 [진단 이력 기능] 여기까지 ──
+
+      // 💡 [최하단 코드 교체] 출처 독립 토글 시스템
+    const btnSource = document.getElementById('btnSource');
+    const sourceContent = document.getElementById('sourceContent');
+
+    if (btnSource && sourceContent) {
+        btnSource.addEventListener('click', () => {
+            // 다른 요소와 꼬이지 않는 출처 전용 클래스로 토글 작동
+            sourceContent.classList.toggle('source-hide');
+            
+            if (sourceContent.classList.contains('source-hide')) {
+                btnSource.textContent = '데이터셋 출처 확인';
+                btnSource.classList.remove('active');
+            } else {
+                btnSource.textContent = '출처 정보 닫기';
+                btnSource.classList.add('active');
+            }
+        });
+    }
+   
+
+    // =========================================================================
+    // 📄 실시간 데이터 다운로드 파이프라인
+    // =========================================================================
+    // 이 블록은 예전에 DOMContentLoaded 리스너로 한 번 더 감싸여 있었다. 이 파일 전체가
+    // 이미 DOMContentLoaded 콜백 안이라, 그 시점에 추가한 리스너는 지금 진행 중인
+    // 디스패치에서 호출되지 않는다 → 핸들러가 아예 결합되지 않았다. 래퍼를 걷어냈다.
+
+    // 1. 변수 안전 바인딩 확인 (systemStatus는 위에서 이미 잡아둔 것을 쓴다)
+    const btnHeaderDownload = document.getElementById('btnHeaderDownload');
+
+    // 2. 다운로드 스위치 클릭 핸들러 결합 (버튼의 hide 해제는 injectBackendResult가 담당)
+    if (btnHeaderDownload) {
+        // 백엔드 연산 완료 타이밍에 맞춰 버튼의 'hide' 클래스를 제거하는 제어권 통합
+        // (현재 injectBackendResult 함수 내부에서 remove('hide')를 호출하므로, 
+        //  이벤트 리스너가 중복 꼬이지 않도록 클릭 핸들러만 깔끔하게 단독 배치합니다.)
+        
+        btnHeaderDownload.onclick = function() {
+            const metaPipe = document.getElementById('backendUrls');
+            
+            // 화면 텍스트 대신, 백엔드 모델이 계산해서 숨겨놓은 실제 불량 확률 원값(소수점) 추적
+            // (없으면 빈 문자열. 여기서 임의값을 채우면 그 값이 그대로 보고서 확률이 된다)
+            const rawDefectProb = metaPipe ? (metaPipe.getAttribute('data-prob') || '') : '';
+            // 보고서에 찍을 원본 파일명 (없으면 백엔드가 UUID로 대체 표기)
+            const originName = metaPipe ? (metaPipe.getAttribute('data-name') || '') : '';
+            const userImg = metaPipe ? metaPipe.getAttribute('data-origin') : '';
+            const camImg = metaPipe ? metaPipe.getAttribute('data-result') : '';
+            const heatmapImg = metaPipe ? metaPipe.getAttribute('data-heatmap') : '';
+
+            // 판정은 data-status(백엔드 result_status "우수"/"불량")를 쓴다.
+            // systemStatus.textContent는 불량일 때 빈 문자열이라 우수로 오독된다.
+            const aiResultText = metaPipe ? (metaPipe.getAttribute('data-status') || '') : '';
+            
+            // 전역 스코프에 바인딩된 밀리초 변수 안전 추출 가드
+            const infMs = window.inference_ms || "1637";
+
+            // 쿼리 스트링 파라미터를 동적으로 빌드하여 백엔드 PDF 다운로드 API 강제 기동
+            const downloadUrl = `/api/download-report?user_image=${encodeURIComponent(userImg)}` +
+                                `&cam_image=${encodeURIComponent(camImg)}` +
+                                `&heatmap_image=${encodeURIComponent(heatmapImg || '')}` +
+                                `&ai_result=${encodeURIComponent(aiResultText)}` +
+                                `&raw_prob=${encodeURIComponent(rawDefectProb)}` +
+                                `&origin_name=${encodeURIComponent(originName)}` +
+                                `&inference_ms=${encodeURIComponent(infMs)}`;
+
+            window.location.href = downloadUrl;
+        };
     }
 });
