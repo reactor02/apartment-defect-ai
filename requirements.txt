@@ -10,3 +10,6 @@ opencv-python-headless
 torch
 torchvision
 grad-cam==1.5.5
+
+# PDF 진단 보고서 생성 (app/main.py)
+reportlab==5.0.0
